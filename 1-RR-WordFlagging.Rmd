@@ -1,0 +1,211 @@
+---
+title: "1-RR-WordFlagging"
+author: "Anoff Nicholas Cobblah"
+date: "July 30, 2018"
+output: html_document
+    number_sections: yes
+    toc: true
+    toc_depth: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+*********************************************************************************************************************************************
+*********************************************************************************************************************************************
+*********************************************************************************************************************************************
+# Word Flagging
+
+In what I call *word flagging*, I note where a certain word (or words) appear in a text (or texts), and visualizing those appearances. For instance, this technique could tell you visually whether Esther is mentioned more by name in the beginning or at the end of *Bleak House*. Or it could show where the words "North" and "South" appear in Gaskell's *North and South*, which might be useful in studying how the narrative makes use of those spaces.
+
+As usual, the first step is again to create a list of words you are interested in locating. **It should be noted that I realized later that this was not a good list of terms. "labor" is not the same as "labori" or "labour" in the word stem list. But as this is a visualization and binning test, it doesn't really matter.
+
+```{r flagterm, eval=FALSE}
+  flagterm <- c("play", "game", "recreation", "work", "labour", "toil")
+```
+
+Please note that this script also requires the existence of Processed Texts.
+
+## Quick Lemma Flag Script
+
+Flagging where these terms occur within the text means that, unlike other types of analyses, this script cannot treat the text as a "bag of words": we need to create a matrix (labelled data) which maintains information not only on whether or not the terms are in the text, but also where they appear.
+
+```{r Word Flag, eval=FALSE}
+if(file.exists(ProcessedDataLocation) == TRUE) {
+  stemflagterm <- unique(wordStem(flagterm))
+  files <- list.files(path = ProcessedDataLocation, pattern = "txt", full.names = TRUE)
+  lemma <- list()
+  Percentage <- list()
+  data <- matrix(,ncol=7,nrow=1)
+    colnames(data) <- c("Text","Text_ID", "Searched_Term","Searched_Term_ID","Lemma","Lemma_Length","Percentage")
+  for (p in 1:length(stemflagterm)) {
+        iterp <- 1
+        tempdata <- matrix(,ncol=7,nrow=1) #this matrix is supposed to get wiped every loop.
+        searchedterm <- stemflagterm[p]
+    #Basically, we want to search for every place in the tems that matches the stemflagtermvector, and note where that occurs. This is a bit tricky, because we don't know how many times that term is going to appear.  That's where the iterp value comes in: for each loop which finds a match, "iterp"" increases by one and allows the value to be added to the list "lemma".
+    for (i in 1:length(files)) {
+      print(files[i])
+      fileName <- read_file(files[i])
+      #since tokenize_sentences function requires things to be encoded in UTF-8, need to remove some data.
+      Encoding(fileName) <- "UTF-8"
+      fileName <- iconv(fileName, "UTF-8", "UTF-8",sub='')
+      ltoken <- tokenize_words(fileName, lowercase = TRUE, stopwords = NULL, simplify = FALSE)
+      ltoken <- unlist(ltoken)
+      stemltoken <- wordStem(ltoken)
+      for (w in 1:length(ltoken)) {
+        if(stemltoken[w] == searchedterm) {
+          lemma[[iterp]] <- w
+          iterp <- iterp+1
+        }
+      }
+      #When comparing files, it is often useful to normalize somehow.  This cell changes the lemma ID # into the place in the text, by percentage, where the term appears.
+      if (length(lemma) != 0){
+        for (k in 1:length(lemma)) {
+          Percentage[[k]] <- (lemma[[k]] / length(ltoken)) *100
+        }
+      }
+      #This can get a bit messed up if we don't add in some NA values for files which have no references to the stemflagterm vector, so we add them here.
+        lemma <- unlist(lemma)
+          #there used to be an unnecessary step here where I added in some NAs.  But I might be wrong about it...
+        Percentage <- unlist(Percentage)
+      #Now it's time to start adding what we've found for this document into our data matrix.
+        mat <- matrix(,ncol=7,nrow=length(lemma))
+        mat[,1] <- gsub(paste0(ProcessedDataLocation,"/"),"",files[i]) #This grabs just the end of the file path.
+        mat[,1] <- gsub(".txt","",mat[,1])
+        mat[,2] <- i
+        mat[,3] <- searchedterm
+        mat[,4] <- p
+        mat[,5] <- lemma
+        mat[,6] <- length(ltoken)
+        mat[,7] <- Percentage
+        tempdata <- rbind(tempdata,mat)
+      #Finally, we need to clear our lists again before running the next search term through this file.
+        lemma <- list()
+        Percentage <- list()
+    }
+    #Our tempdatamatrix begins with an emtpy row, so we want to get rid of that, and then add all of this data for this searchterm, across all the files, to our final data matrix. "tempdata" will be erased once the loop starts again.
+      tempdata <- tempdata[-1,]
+      data <- rbind(data,tempdata)
+  }
+  #Data also starts with an empty row, so we delete that, and turn it into a dataframe which is saved in a new directory, "wfoutput".
+    data <- data[-1,]
+    WordFlagdf <- as.data.frame(data)
+    WordFlagdf
+}else{print("No pre-processed data available. See 'Pre-Processing Texts' above")}
+```
+
+
+## Fast, Sentence Level Word Flag Script
+This script is similar, but it judges based on the sentences in which the match appears.
+
+```{r Word Flag Sentence Fast, eval=FALSE}
+
+###the above script worked well enough, but it is so fucking slow. So I'm testing to see if I can come up with a better version. And it works!!! It's also fairly quick. I'd say a bit quicker than the default lemma verson. 
+if(file.exists(ProcessedDataLocation) == TRUE) {
+  stemflagterm <- unique(stem_strings(flagterm))
+  files <- list.files(path = ProcessedDataLocation, pattern = "txt", full.names = TRUE)
+  SentenceWordFlagdf <- data.frame(Text=character(), Searched_Term=character(), Sentence_No=integer(), Sentence=character(), Sentence_Total = integer(), Percentage = numeric())
+  
+  for (i in 1:length(files)) {
+    #first we print which file we are looking at, so we know how far in we are
+    print(paste0(i," out of ",length(files)," files"))
+    #for each document, we create a temporary data frame that we'll add to the final results
+    TempDocdf <- data.frame(Text=character(), Searched_Term=character(), Sentence_No=integer(), Sentence=character())
+        
+    #Basically, we want to search for every sentence in which the character string that matches the stemflagtermvector appears, and note where that occurs. This is a bit tricky, because we don't know how many times that term is going to appear.
+    fileName <- read_file(files[i])
+    
+    #since tokenize_sentences function requires things to be encoded in UTF-8, need to remove some data.
+    #The Encoding function specifies that we want this in utf8
+    Encoding(fileName) <- "UTF-8"
+    #the incon function converts a character vector between encodings (the i is for internationalization)
+    fileName <- iconv(fileName, "UTF-8", "UTF-8",sub='')
+    #the stoken then splits it into sentences
+    stoken <- tokenize_sentences(fileName, lowercase = FALSE, strip_punct = FALSE, simplify = FALSE)
+    #lists are a bit annoying to work with, so we unlist that into a vector
+    s2token <- unlist(stoken)
+    #Now we're going to make a dataframe to keep track of the sentences
+    Sentencedf <- data.frame(Sentence = as.character())
+    Sentencedf <- data.frame(Sentence = as.character(s2token))
+    #We need a 3rd stoken value to take out the punctuation.
+    s3token <- tokenize_sentences(s2token, lowercase=TRUE, strip_punct=TRUE, simplify=FALSE)
+    Sentencedf$SentenceStripped <- as.character(s3token)
+    Sentencedf$StemSentence <- stem_strings(Sentencedf$SentenceStripped)
+    
+    for (q in 1:nrow(Sentencedf)) {
+       for (p in 1:length(stemflagterm)) {
+          
+        print(paste0(p," out of ",length(stemflagterm)," search terms. ",q," out of ",length(s2token)," sentences. ",i," out of ",length(files)," files")) 
+         
+        #Note that below, grepl can return TRUE, FALSE, or logical(0). So we only want the true ones.
+        templist <- strsplit(Sentencedf$StemSentence[q]," ")
+         if(any(templist[[1]] == stemflagterm[p])) {
+            tempdf <- data.frame(files[i],stemflagterm[p],q,Sentencedf$Sentence[q])
+              names(tempdf) <- c("Text","Searched_Term","Sentence_No","Sentence")
+              TempDocdf <- rbind(TempDocdf,tempdf)
+              }
+              
+            }
+          }
+    
+    if(nrow(TempDocdf) != 0) {TempDocdf$Sentence_Total <- nrow(Sentencedf)
+      TempDocdf$Percentage <- TempDocdf$Sentence_No / TempDocdf$Sentence_Total *100
+      SentenceWordFlagdf <- rbind(SentenceWordFlagdf,TempDocdf)}
+  }
+  SentenceWordFlagdf$Percentage <- as.factor(SentenceWordFlagdf$Percentage)
+  SentenceWordFlagdf
+}else{print("No pre-processed data available. See 'Pre-Processing Texts' above")}
+
+```
+
+Ok, now I need to split these two data sets into their play and work components.
+
+```{r Word Flagging Output Location, eval=FALSE}
+PlayWordFlagdf <- rbind(subset(WordFlagdf,WordFlagdf$Searched_Term == "plai"),subset(WordFlagdf,WordFlagdf$Searched_Term == "game"),subset(WordFlagdf,WordFlagdf$Searched_Term == "recreat"))
+
+WorkWordFlagdf <- rbind(subset(WordFlagdf,WordFlagdf$Searched_Term == "work"),subset(WordFlagdf,WordFlagdf$Searched_Term == "labor"),subset(WordFlagdf,WordFlagdf$Searched_Term == "toil"))
+
+PlaySentenceWordFlagdf <- rbind(subset(SentenceWordFlagdf,SentenceWordFlagdf$Searched_Term == "plai"),subset(SentenceWordFlagdf,SentenceWordFlagdf$Searched_Term == "game"),subset(SentenceWordFlagdf,SentenceWordFlagdf$Searched_Term == "recreat"))
+
+WorkSentenceWordFlagdf <- rbind(subset(SentenceWordFlagdf,SentenceWordFlagdf$Searched_Term == "work"),subset(SentenceWordFlagdf,SentenceWordFlagdf$Searched_Term == "labor"),subset(SentenceWordFlagdf,SentenceWordFlagdf$Searched_Term == "toil"))
+
+##Now to add these together into one dataframe.
+PlayWordFlagdf$Category <- "PlayWordFlag"
+WorkWordFlagdf$Category <- "WorkWordFlag"
+PlaySentenceWordFlagdf$Category <- "PlaySentenceWordFlagdf"
+WorkSentenceWordFlagdf$Category <- "WorkSentenceWordFlagdf"
+
+df <- rbind(subset(PlayWordFlagdf,select=c(Percentage,Category)),subset(WorkWordFlagdf,select=c(Percentage,Category)),subset(PlaySentenceWordFlagdf,select=c(Percentage,Category)),subset(WorkSentenceWordFlagdf,select=c(Percentage,Category)))
+                   
+```
+
+## Visualizations of Word Flagging: 
+
+
+#### Scatterplot: 1 Text
+
+Now, to visualize these and see how they compare.
+
+```{r Scatterplot Single Text, eval=FALSE}
+  p <- ggplot(df, aes(y = as.factor(Category), x = as.numeric(as.character(Percentage))))
+  pg <- geom_point(size=1,pch = 16)
+  pl <- p + pg + labs(x = "% of Text (by word)", y = "Searched Term", title = "Appearances of Keywords within Text")
+  pl
+```
+
+#### Histograms
+
+```{r histogram script, eval=FALSE}
+      p <- ggplot(df, mapping = aes(x = as.numeric(as.character(Percentage))))
+      pg <- geom_histogram(binwidth = 10)
+      pl <- p + pg + labs(x = "Text", title =  "Histogram of Terms")  + facet_wrap(~Category)
+      pl
+    
+```
+
+As you can see, there is some minor variation, but the sentence level analysis and lemma level analysis are remarkably similar. I feel quite justified in proceeding with sentence level Word Flagging from here on out.
+*********************************************************************************************************************************************
+*********************************************************************************************************************************************
+*********************************************************************************************************************************************

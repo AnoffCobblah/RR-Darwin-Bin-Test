@@ -93,18 +93,6 @@ library(tm)
 library(tokenizers)
 ```
 
-### coreNLP
-
-"coreNLP" is a package I primarily use for part of speech tagging.  However, installing the package requires a large amount of time, so carefully consider whether you want to use these before running this script.
-
-```{r coreNLP installations, warning=FALSE, eval=FALSE}
-install.packages("coreNLP") #only need to do this once
-library(coreNLP)
-downloadCoreNLP() #only need to do this once
-initCoreNLP() #NOTE: this function will cause problems if you try to load it into the environment more than once.  Make sure to keep it out of loops too.
-
-```
-
 # A Note About Citation
 Most of the software packages are written by academics.  Reliable and easy-to-use software is difficult to make.  If you use these packages in your published work: *please* cite them.  In R you can even see how the author would like to be cited (and get a bibtex entry).
 ```{r Citations, eval=FALSE}
